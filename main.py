@@ -1,4 +1,5 @@
 from functools import cache
+import os
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse
@@ -211,4 +212,5 @@ from typing import Optional
  
 if __name__ == "__main__":
     generate_vars_file()
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    print(os.environ)
+    uvicorn.run(app, host="0.0.0.0", port=int(os.environ.get("PORT", 8000)))
