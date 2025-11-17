@@ -1,4 +1,3 @@
-from enum import Enum
 from functools import cache
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -81,76 +80,21 @@ async def echo(data: EchoInput):
     接收包含服裝、天氣、心情和日期的資料,生成自然語言描述。
     會使用 clothe, weather, mood 這些欄位，並忽略 date。
     """
-    
-    # 生成自然語言描述
-    text, used_fields, ignored_fields = generate_description(data.model_dump(exclude_none=False))
-    
-    return EchoOutput(
-        text=text,
-        used=used_fields,
-        ignore=ignored_fields
-    )
-
-@cache
-def load_templates() -> Tuple[List[str], List[str], List[Tuple[str, List[str]]]]:
-    """
-    載入句子模板並解析參數
-    回傳格式: (使用欄位列表, 未使用欄位列表, [(模板字串, [參數列表]), ...])
-    """
-    template_file = Path("assets/templates.txt")
-    content = template_file.read_text(encoding="utf-8")
-    templates = []
-    fields_to_use = []
-    fields_to_ignore = []
-    
-    for line in content.split('\n'):
-        line = line.strip()
-        if not line:
-            continue
-            
-        # 解析 used 和 unused 定義
-        if line.startswith("used:"):
-            fields_to_use = [f.strip() for f in line.replace("used:", "").split(",")]
-        elif line.startswith("unused:"):
-            fields_to_ignore = [f.strip() for f in line.replace("unused:", "").split(",")]
-        else:
-            # 使用正則表達式找出所有 {參數名} 格式的參數
-            params = re.findall(r'\{(\w+)\}', line)
-            templates.append((line, params))
-    
-    return fields_to_use, fields_to_ignore, templates
-
-def generate_description(data: dict) -> Tuple[str, List[str], List[str]]:
-    """
-    根據提供的資料生成自然語言描述
-    會讀取範本，解析所需參數，並根據輸入資料篩選可用範本
-    參數越多的範本加權越高
-    
-    回傳: (描述文字, 使用的欄位列表, 忽略的欄位列表)
-    """
     # 從範本檔案載入欄位定義
-    fields_to_use, fields_to_ignore, all_templates = load_templates()
+    all_templates = load_templates()
     
-    # 收集有值且會使用的欄位
-    available_data = {}
-    used_fields = []
-    for field in fields_to_use:
-        if field in data and data[field]:
-            used_fields.append(field)
-            available_data[field] = data[field]
-    
-    # 收集有值但會忽略的欄位
-    ignored_fields = []
-    for field in fields_to_ignore:
-        if field in data and data[field]:
-            ignored_fields.append(field)
+    available_data = {k: v for k, v in data.model_dump(exclude_none=True).items() if v is not None}
     
     if not available_data:
-        return "No information provided.", used_fields, ignored_fields
+        return EchoOutput(
+            text="No data provided to generate description.",
+            used=[],
+            ignore=list(EchoInput.model_fields.keys())
+        )
     
     # 篩選出可以滿足的範本
-    valid_templates = []
-    weights = []
+    valid_templates: List[Tuple[str, List[str]]] = []
+    weights: List[int] = []
     for template_str, required_params in all_templates:
         # 檢查是否所有必需參數都存在且有值
         if all(param in available_data and available_data[param] for param in required_params):
@@ -161,10 +105,40 @@ def generate_description(data: dict) -> Tuple[str, List[str], List[str]]:
     # 如果有滿足條件的範本,根據權重隨機選擇一個
     if valid_templates:
         template_str, params = random.choices(valid_templates, weights=weights, k=1)[0]
-        return template_str.format(**available_data), used_fields, ignored_fields
+        exclude_fields = set(EchoInput.model_fields.keys()) - set(params)
+        return EchoOutput(
+            text=template_str.format(**available_data),
+            used=params,
+            ignore=list(exclude_fields)
+        )
     
     # 如果沒有滿足條件的範本，回傳預設訊息
-    return "Failed to generate description with the provided information.", used_fields, ignored_fields
+    return EchoOutput(
+        text="Failed to generate description with the provided information.",
+        used=[],
+        ignore=list(available_data.keys())
+    )
 
+@cache
+def load_templates() -> List[Tuple[str, List[str]]]:
+    """
+    載入句子模板並解析參數
+    回傳格式: (使用欄位列表, 未使用欄位列表, [(模板字串, [參數列表]), ...])
+    """
+    template_file = Path("assets/templates.txt")
+    content = template_file.read_text(encoding="utf-8")
+    templates: List[Tuple[str, List[str]]] = []
+    
+    for line in content.split('\n'):
+        line = line.strip()
+        if not line:
+            continue
+            
+        # 使用正則表達式找出所有 {參數名} 格式的參數
+        params = re.findall(r'\{(\w+)\}', line)
+        templates.append((line, params))
+    
+    return templates
+ 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=8000)

@@ -1,6 +1,3 @@
-used: clothe, weather, mood
-unused: date
-
 On a {weather} day, you {mood}ly put on a {clothe}.
 You {mood}ly wore a {clothe} on this {weather} day.
 Feeling {mood}, you chose a {clothe} for the {weather} weather.
